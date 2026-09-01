@@ -1,6 +1,8 @@
 package com.worldtitle;
 
 import java.awt.Frame;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.swing.SwingUtilities;
@@ -31,6 +33,15 @@ public class WorldTitlePlugin extends Plugin
 
 	private Timer titleRetryTimer;
 	private int titleRetriesRemaining;
+	private Frame titleFrame;
+	private final WindowAdapter titleFocusListener = new WindowAdapter()
+	{
+		@Override
+		public void windowGainedFocus(WindowEvent event)
+		{
+			startTitleRetryTimer();
+		}
+	};
 
 	@Override
 	protected void startUp()
@@ -42,6 +53,7 @@ public class WorldTitlePlugin extends Plugin
 	protected void shutDown()
 	{
 		stopTitleRetryTimer();
+		removeTitleFocusListener();
 		resetTitle();
 	}
 
@@ -75,6 +87,8 @@ public class WorldTitlePlugin extends Plugin
 			{
 				return;
 			}
+
+			addTitleFocusListener(frame);
 
 			final String baseTitle = stripWorldSuffix(frame.getTitle());
 			if (showWorld && !hasUsername(baseTitle))
@@ -125,6 +139,27 @@ public class WorldTitlePlugin extends Plugin
 		{
 			titleRetryTimer.stop();
 			titleRetryTimer = null;
+		}
+	}
+
+	private void addTitleFocusListener(Frame frame)
+	{
+		if (titleFrame == frame)
+		{
+			return;
+		}
+
+		removeTitleFocusListener();
+		titleFrame = frame;
+		titleFrame.addWindowFocusListener(titleFocusListener);
+	}
+
+	private void removeTitleFocusListener()
+	{
+		if (titleFrame != null)
+		{
+			titleFrame.removeWindowFocusListener(titleFocusListener);
+			titleFrame = null;
 		}
 	}
 

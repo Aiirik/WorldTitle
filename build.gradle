@@ -15,11 +15,11 @@ repositories {
 
 def runeLiteVersion = 'latest.release'
 def pluginMainClass = 'com.worldtitle.WorldTitlePluginTest'
+version = '1.0.0'
 
 dependencies {
 	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
 
-	testImplementation 'junit:junit:4.12'
 	testImplementation group: 'net.runelite', name:'client', version: runeLiteVersion
 	testImplementation group: 'net.runelite', name:'jshell', version: runeLiteVersion
 }
