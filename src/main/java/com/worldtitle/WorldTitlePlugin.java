@@ -13,10 +13,16 @@ import net.runelite.api.GameState;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.WorldChanged;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.config.RuneLiteConfig;
+import net.runelite.client.events.WorldsFetch;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.game.WorldService;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.http.api.worlds.World;
+import net.runelite.http.api.worlds.WorldResult;
+import net.runelite.http.api.worlds.WorldType;
 
 @PluginDescriptor(
 	name = "World Title"
@@ -39,10 +45,17 @@ public class WorldTitlePlugin extends Plugin
 	@Inject
 	private WorldTitleConfig config;
 
+	@Inject
+	private RuneLiteConfig runeLiteConfig;
+
+	@Inject
+	private WorldService worldService;
+
 	private Timer titleRetryTimer;
 	private int titleRetriesRemaining;
 	private Frame titleFrame;
 	private String lastWorldSuffix;
+	private WorldResult worldResult;
 	private final WindowAdapter titleFocusListener = new WindowAdapter()
 	{
 		@Override
@@ -61,6 +74,7 @@ public class WorldTitlePlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
+		worldService.refresh();
 		updateTitle();
 	}
 
@@ -94,11 +108,26 @@ public class WorldTitlePlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onWorldsFetch(WorldsFetch event)
+	{
+		worldResult = event.getWorldResult();
+		updateTitle();
+	}
+
+	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
 		if ("world-title".equals(event.getGroup()))
 		{
 			updateTitle();
+			return;
+		}
+
+		if ("runelite".equals(event.getGroup())
+			&& "usernameInTitle".equals(event.getKey())
+			&& client.getGameState() == GameState.LOGGED_IN)
+		{
+			startTitleRetryTimer(TITLE_RETRY_DELAY_MS);
 		}
 	}
 
@@ -276,11 +305,54 @@ public class WorldTitlePlugin extends Plugin
 
 	private String formatWorldSuffix(int world)
 	{
-		return " - " + config.worldFormat().format(world);
+		final StringBuilder suffix = new StringBuilder(" - ")
+			.append(config.worldFormat().format(world));
+		final World worldInfo = findWorld(world);
+		final String activity = getWorldActivity(worldInfo);
+
+		if (config.showWorldActivity() && activity != null)
+		{
+			suffix.append(" - ").append(activity);
+		}
+
+		if (config.showMembershipType() && worldInfo != null)
+		{
+			suffix.append(" (")
+				.append(worldInfo.getTypes().contains(WorldType.MEMBERS) ? "Members" : "Free")
+				.append(')');
+		}
+
+		return suffix.toString();
+	}
+
+	private World findWorld(int world)
+	{
+		return worldResult == null ? null : worldResult.findWorld(world);
+	}
+
+	private static String getWorldActivity(World world)
+	{
+		if (world == null)
+		{
+			return null;
+		}
+
+		final String activity = world.getActivity();
+		if (activity == null || "-".equals(activity))
+		{
+			return null;
+		}
+
+		return activity.trim();
 	}
 
 	private boolean isLoggedInTitleReady(String title)
 	{
+		if (!runeLiteConfig.usernameInTitle())
+		{
+			return title.equals(runeliteTitle);
+		}
+
 		return title.startsWith(runeliteTitle + " - ") && title.length() > runeliteTitle.length() + 3;
 	}
 }

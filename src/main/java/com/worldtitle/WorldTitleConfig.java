@@ -17,4 +17,26 @@ public interface WorldTitleConfig extends Config
 	{
 		return WorldTitleFormat.WORLD_PREFIX;
 	}
+
+	@ConfigItem(
+		keyName = "showWorldActivity",
+		name = "Show world activity",
+		description = "Show the current world's listed activity in the RuneLite window title",
+		position = 1
+	)
+	default boolean showWorldActivity()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "showMembershipType",
+		name = "Show membership type",
+		description = "Show whether the current world is free or members",
+		position = 2
+	)
+	default boolean showMembershipType()
+	{
+		return false;
+	}
 }
