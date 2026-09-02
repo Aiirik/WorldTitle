@@ -20,6 +20,8 @@ This is useful when you run multiple RuneLite clients, record gameplay, stream, 
 
 ## Examples
 
+![World Title example](docs/world-title-example.png)
+
 ```text
 RuneLite - PlayerName - W301
 RuneLite - PlayerName - W301 - Trade - Free
@@ -40,8 +42,6 @@ Available settings:
 ## Notes
 
 World activity and membership data comes from RuneLite's existing world list service. If that data has not loaded yet, the plugin may briefly show only the world number and update once RuneLite receives the world list.
-
-The plugin does not automate gameplay, modify menus, inject input, or perform its own network requests.
 
 ## Change log
 
