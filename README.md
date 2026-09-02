@@ -31,6 +31,8 @@ RuneLite - W301
 
 ## Configuration
 
+Open RuneLite's plugin settings and search for `RuneLite`. In window settings, make sure `Enable custom window chrome` is enabled.
+
 Open RuneLite's plugin settings and search for `World Title`.
 
 Available settings:
