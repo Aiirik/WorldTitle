@@ -28,6 +28,8 @@ This is useful when you run multiple RuneLite clients, record gameplay, stream, 
 
 ![World Title example](docs/world-title-example.png)
 
+![World Title detailed example](docs/world-title-example-details.png)
+
 ```text
 RuneLite - PlayerName - W301
 RuneLite - PlayerName - W301 - Trade - Free
