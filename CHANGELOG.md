@@ -17,6 +17,16 @@ Initial release.
   - `301`
 - Add optional world activity text, for example `W307 - Wintertodt`.
 - Add optional membership text, for example `W307 - Wintertodt (Members)`.
+- Add optional world region text after the world or activity, for example `W307 - Wintertodt (UK)`.
+- Add optional player count text, for example `W301 - Trade - 842 players`.
+- Add configurable membership styles:
+  - `(Members) / (Free)`
+  - `(Members) / (F2P)`
+  - `Members / Free`
+- Add configurable detail separators:
+  - `W301 - Trade`
+  - `W301 | Trade`
+  - `W301: Trade`
 - Add title cleanup when the plugin is disabled or the client returns to the login screen.
 
 ### Technical

@@ -30,13 +30,57 @@ public interface WorldTitleConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "showWorldRegion",
+		name = "Show world region",
+		description = "Show the current world's region in the RuneLite window title",
+		position = 2
+	)
+	default boolean showWorldRegion()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "showPlayerCount",
+		name = "Show player count",
+		description = "Show the current world's player count in the RuneLite window title",
+		position = 3
+	)
+	default boolean showPlayerCount()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "showMembershipType",
 		name = "Show membership type",
 		description = "Show whether the current world is free or members",
-		position = 2
+		position = 4
 	)
 	default boolean showMembershipType()
 	{
 		return false;
+	}
+
+	@ConfigItem(
+		keyName = "membershipStyle",
+		name = "Membership style",
+		description = "How free and members worlds are displayed",
+		position = 5
+	)
+	default WorldTitleMembershipStyle membershipStyle()
+	{
+		return WorldTitleMembershipStyle.FULL_PARENS;
+	}
+
+	@ConfigItem(
+		keyName = "separator",
+		name = "Separator",
+		description = "Separator used between world title details",
+		position = 6
+	)
+	default WorldTitleSeparator separator()
+	{
+		return WorldTitleSeparator.DASH;
 	}
 }

@@ -21,6 +21,7 @@ import net.runelite.client.game.WorldService;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.http.api.worlds.World;
+import net.runelite.http.api.worlds.WorldRegion;
 import net.runelite.http.api.worlds.WorldResult;
 import net.runelite.http.api.worlds.WorldType;
 
@@ -305,24 +306,41 @@ public class WorldTitlePlugin extends Plugin
 
 	private String formatWorldSuffix(int world)
 	{
-		final StringBuilder suffix = new StringBuilder(" - ")
-			.append(config.worldFormat().format(world));
+		final String separator = config.separator().separator();
+		final StringBuilder details = new StringBuilder(config.worldFormat().format(world));
 		final World worldInfo = findWorld(world);
 		final String activity = getWorldActivity(worldInfo);
 
 		if (config.showWorldActivity() && activity != null)
 		{
-			suffix.append(" - ").append(activity);
+			details.append(separator).append(activity);
+		}
+
+		if (config.showWorldRegion() && worldInfo != null)
+		{
+			details.append(" (").append(formatWorldRegion(worldInfo.getRegion())).append(')');
+		}
+
+		if (config.showPlayerCount() && worldInfo != null && worldInfo.getPlayers() >= 0)
+		{
+			details.append(separator).append(formatPlayerCount(worldInfo.getPlayers()));
 		}
 
 		if (config.showMembershipType() && worldInfo != null)
 		{
-			suffix.append(" (")
-				.append(worldInfo.getTypes().contains(WorldType.MEMBERS) ? "Members" : "Free")
-				.append(')');
+			final String membership = config.membershipStyle()
+				.format(worldInfo.getTypes().contains(WorldType.MEMBERS));
+			if (membership.startsWith("("))
+			{
+				details.append(' ').append(membership);
+			}
+			else
+			{
+				details.append(separator).append(membership);
+			}
 		}
 
-		return suffix.toString();
+		return " - " + details;
 	}
 
 	private World findWorld(int world)
@@ -344,6 +362,21 @@ public class WorldTitlePlugin extends Plugin
 		}
 
 		return activity.trim();
+	}
+
+	private static String formatPlayerCount(int players)
+	{
+		return players + (players == 1 ? " player" : " players");
+	}
+
+	private static String formatWorldRegion(WorldRegion region)
+	{
+		if (region == WorldRegion.UNITED_KINGDOM)
+		{
+			return "UK";
+		}
+
+		return region.getAlpha2();
 	}
 
 	private boolean isLoggedInTitleReady(String title)

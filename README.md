@@ -11,7 +11,13 @@ This is useful when you run multiple RuneLite clients, record gameplay, stream, 
 - Updates after world hops.
 - Works with RuneLite's `Show display name in title` setting enabled or disabled.
 - Optional world activity display, such as `Trade` or `Wintertodt`.
-- Optional membership display, showing `(Members)` or `(Free)`.
+- Optional region display after the world or activity, such as `(US)` or `(UK)`.
+- Optional player count display, such as `842 players`.
+- Optional membership display, with full, short, or unwrapped styles.
+- Configurable separator for title details:
+  - `W301 - Trade`
+  - `W301 | Trade`
+  - `W301: Trade`
 - Configurable world format:
   - `W301`
   - `World 301`
@@ -26,6 +32,8 @@ This is useful when you run multiple RuneLite clients, record gameplay, stream, 
 RuneLite - PlayerName - W301
 RuneLite - PlayerName - W301 - Trade - Free
 RuneLite - PlayerName - W307 - Wintertodt (Members)
+RuneLite - PlayerName - W307 - Wintertodt (UK) (Members)
+RuneLite - PlayerName - W301 | Trade (US) | 842 players
 RuneLite - W301
 ```
 
@@ -39,7 +47,11 @@ Available settings:
 
 - `World format`: controls how the world number is displayed.
 - `Show world activity`: appends the current world's listed activity when available.
+- `Show world region`: appends the current world's region when available.
+- `Show player count`: appends the current world's player count when available.
 - `Show membership type`: appends whether the world is free-to-play or members.
+- `Membership style`: controls how free-to-play and members worlds are displayed.
+- `Separator`: controls the separator used between world title details.
 
 ## Notes
 
