@@ -43,6 +43,8 @@ Open RuneLite's plugin settings and search for `RuneLite`. In window settings, m
 
 Open RuneLite's plugin settings and search for `World Title`.
 
+![World Title configuration](docs/world-title-config.png)
+
 Available settings:
 
 - `World format`: controls how the world number is displayed.
