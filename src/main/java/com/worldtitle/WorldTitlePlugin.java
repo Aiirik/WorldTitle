@@ -3,6 +3,11 @@ package com.worldtitle;
 import java.awt.Frame;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import com.google.inject.Provides;
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -10,8 +15,10 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.Player;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.WorldChanged;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.RuneLiteConfig;
 import net.runelite.client.events.WorldsFetch;
@@ -33,11 +40,15 @@ public class WorldTitlePlugin extends Plugin
 	private static final String WORLD_SUFFIX_PATTERN = " - (?:W\\d+|World \\d+|\\[\\d+\\])$";
 	private static final int TITLE_RETRY_DELAY_MS = 250;
 	private static final int TITLE_RETRY_COUNT = 8;
+	private static final int METADATA_RETRY_COUNT = 40;
 	// RuneLite can rewrite its title shortly after a hop; wait before applying ours to avoid visible flicker.
 	private static final int WORLD_HOP_TITLE_DELAY_MS = 1000;
 
 	@Inject
 	private Client client;
+
+	@Inject
+	private ClientThread clientThread;
 
 	@Inject
 	@Named("runelite.title")
@@ -54,9 +65,13 @@ public class WorldTitlePlugin extends Plugin
 
 	private Timer titleRetryTimer;
 	private int titleRetriesRemaining;
+	private Timer metadataRetryTimer;
+	private int metadataRetriesRemaining;
 	private Frame titleFrame;
 	private String lastWorldSuffix;
-	private WorldResult worldResult;
+	private volatile WorldResult worldResult;
+	private ExecutorService metadataExecutor;
+	private boolean updatingTitle;
 	private final WindowAdapter titleFocusListener = new WindowAdapter()
 	{
 		@Override
@@ -65,6 +80,7 @@ public class WorldTitlePlugin extends Plugin
 			startTitleRetryTimerIfNeeded();
 		}
 	};
+	private final PropertyChangeListener titleChangeListener = this::onFrameTitleChanged;
 
 	@Provides
 	WorldTitleConfig provideConfig(ConfigManager configManager)
@@ -75,14 +91,22 @@ public class WorldTitlePlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
+		metadataExecutor = Executors.newSingleThreadExecutor();
 		worldService.refresh();
-		updateTitle();
+		loadWorldsAsync();
+		updateTitleWhenReady();
 	}
 
 	@Override
 	protected void shutDown()
 	{
 		stopTitleRetryTimer();
+		stopMetadataRetryTimer();
+		if (metadataExecutor != null)
+		{
+			metadataExecutor.shutdownNow();
+			metadataExecutor = null;
+		}
 		removeTitleFocusListener();
 		resetTitle();
 	}
@@ -92,7 +116,7 @@ public class WorldTitlePlugin extends Plugin
 	{
 		if (event.getGameState() == GameState.LOGGED_IN)
 		{
-			startTitleRetryTimer(WORLD_HOP_TITLE_DELAY_MS);
+			updateTitleWhenReady();
 			return;
 		}
 
@@ -112,6 +136,7 @@ public class WorldTitlePlugin extends Plugin
 	public void onWorldsFetch(WorldsFetch event)
 	{
 		worldResult = event.getWorldResult();
+		stopMetadataRetryTimer();
 		updateTitle();
 	}
 
@@ -120,6 +145,7 @@ public class WorldTitlePlugin extends Plugin
 	{
 		if ("world-title".equals(event.getGroup()))
 		{
+			worldService.refresh();
 			updateTitle();
 			return;
 		}
@@ -136,33 +162,59 @@ public class WorldTitlePlugin extends Plugin
 	{
 		final int world = client.getWorld();
 		final boolean showWorld = client.getGameState() == GameState.LOGGED_IN && world > 0;
-		final String worldSuffix = formatWorldSuffix(world);
-
-		SwingUtilities.invokeLater(() ->
+		if (showWorld && needsWorldMetadata() && findWorld(world) == null)
 		{
-			final Frame frame = findClientFrame();
-			if (frame == null)
+			startMetadataRetryTimer();
+		}
+
+		final String worldSuffix = formatWorldSuffix(world);
+		final String baseTitle = getBaseTitle();
+
+		if (showWorld && baseTitle == null)
+		{
+			return;
+		}
+
+		runOnSwingThread(() -> updateTitle(baseTitle, worldSuffix, showWorld));
+	}
+
+	private void updateTitle(String baseTitle, String worldSuffix, boolean showWorld)
+	{
+		final Frame frame = findClientFrame();
+		if (frame == null)
+		{
+			return;
+		}
+
+		addTitleFocusListener(frame);
+
+		final String title = showWorld ? baseTitle + worldSuffix : stripWorldSuffix(frame.getTitle());
+		if (setTitleIfChanged(frame, title) || showWorld)
+		{
+			lastWorldSuffix = showWorld ? worldSuffix : null;
+		}
+		else
+		{
+			lastWorldSuffix = null;
+		}
+	}
+
+	private void updateTitleWhenReady()
+	{
+		clientThread.invokeLater(() ->
+		{
+			if (client.getGameState() != GameState.LOGGED_IN)
 			{
-				return;
+				return true;
 			}
 
-			addTitleFocusListener(frame);
-
-			final String baseTitle = stripWorldSuffix(frame.getTitle());
-			if (showWorld && !isLoggedInTitleReady(baseTitle))
+			if (getBaseTitle() == null)
 			{
-				return;
+				return false;
 			}
 
-			final String title = showWorld ? baseTitle + worldSuffix : baseTitle;
-			if (setTitleIfChanged(frame, title) || showWorld)
-			{
-				lastWorldSuffix = showWorld ? worldSuffix : null;
-			}
-			else
-			{
-				lastWorldSuffix = null;
-			}
+			updateTitle();
+			return true;
 		});
 	}
 
@@ -185,6 +237,11 @@ public class WorldTitlePlugin extends Plugin
 	{
 		SwingUtilities.invokeLater(() ->
 		{
+			if (titleRetryTimer != null && initialDelay > 0)
+			{
+				return;
+			}
+
 			stopTitleRetryTimer();
 			titleRetriesRemaining = TITLE_RETRY_COUNT;
 			titleRetryTimer = new Timer(TITLE_RETRY_DELAY_MS, event ->
@@ -222,6 +279,67 @@ public class WorldTitlePlugin extends Plugin
 		}
 	}
 
+	private void startMetadataRetryTimer()
+	{
+		SwingUtilities.invokeLater(() ->
+		{
+			if (metadataRetryTimer != null)
+			{
+				return;
+			}
+
+			metadataRetriesRemaining = METADATA_RETRY_COUNT;
+			worldService.refresh();
+			loadWorldsAsync();
+			metadataRetryTimer = new Timer(TITLE_RETRY_DELAY_MS, event ->
+			{
+				updateTitle();
+				if (--metadataRetriesRemaining <= 0
+					|| !needsWorldMetadata()
+					|| findWorld(client.getWorld()) != null)
+				{
+					stopMetadataRetryTimer();
+				}
+			});
+			metadataRetryTimer.setInitialDelay(TITLE_RETRY_DELAY_MS);
+			metadataRetryTimer.start();
+		});
+	}
+
+	private void stopMetadataRetryTimer()
+	{
+		if (metadataRetryTimer != null)
+		{
+			metadataRetryTimer.stop();
+			metadataRetryTimer = null;
+		}
+	}
+
+	private void loadWorldsAsync()
+	{
+		if (metadataExecutor == null || metadataExecutor.isShutdown())
+		{
+			return;
+		}
+
+		try
+		{
+			metadataExecutor.submit(() ->
+			{
+				final WorldResult worlds = worldService.getWorlds();
+				if (worlds != null)
+				{
+					worldResult = worlds;
+					updateTitle();
+				}
+			});
+		}
+		catch (RejectedExecutionException ignored)
+		{
+			// Plugin shutdown can race with a pending metadata refresh.
+		}
+	}
+
 	private void addTitleFocusListener(Frame frame)
 	{
 		if (titleFrame == frame)
@@ -232,6 +350,7 @@ public class WorldTitlePlugin extends Plugin
 		removeTitleFocusListener();
 		titleFrame = frame;
 		titleFrame.addWindowFocusListener(titleFocusListener);
+		titleFrame.addPropertyChangeListener("title", titleChangeListener);
 	}
 
 	private void removeTitleFocusListener()
@@ -239,8 +358,35 @@ public class WorldTitlePlugin extends Plugin
 		if (titleFrame != null)
 		{
 			titleFrame.removeWindowFocusListener(titleFocusListener);
+			titleFrame.removePropertyChangeListener("title", titleChangeListener);
 			titleFrame = null;
 		}
+	}
+
+	private void onFrameTitleChanged(PropertyChangeEvent event)
+	{
+		if (!updatingTitle
+			&& client.getGameState() == GameState.LOGGED_IN
+			&& client.getWorld() > 0)
+		{
+			final String baseTitle = stripWorldSuffix(String.valueOf(event.getNewValue()));
+			final String worldSuffix = formatWorldSuffix(client.getWorld());
+			if (isFrameTitleReady(baseTitle))
+			{
+				updateTitle(baseTitle, worldSuffix, true);
+			}
+		}
+	}
+
+	private static void runOnSwingThread(Runnable runnable)
+	{
+		if (SwingUtilities.isEventDispatchThread())
+		{
+			runnable.run();
+			return;
+		}
+
+		SwingUtilities.invokeLater(runnable);
 	}
 
 	private Frame findClientFrame()
@@ -287,7 +433,15 @@ public class WorldTitlePlugin extends Plugin
 	{
 		if (!title.equals(frame.getTitle()))
 		{
-			frame.setTitle(title);
+			updatingTitle = true;
+			try
+			{
+				frame.setTitle(title);
+			}
+			finally
+			{
+				updatingTitle = false;
+			}
 			return true;
 		}
 
@@ -348,6 +502,14 @@ public class WorldTitlePlugin extends Plugin
 		return worldResult == null ? null : worldResult.findWorld(world);
 	}
 
+	private boolean needsWorldMetadata()
+	{
+		return config.showWorldActivity()
+			|| config.showWorldRegion()
+			|| config.showPlayerCount()
+			|| config.showMembershipType();
+	}
+
 	private static String getWorldActivity(World world)
 	{
 		if (world == null)
@@ -379,7 +541,23 @@ public class WorldTitlePlugin extends Plugin
 		return region.getAlpha2();
 	}
 
-	private boolean isLoggedInTitleReady(String title)
+	private String getBaseTitle()
+	{
+		if (!runeLiteConfig.usernameInTitle())
+		{
+			return runeliteTitle;
+		}
+
+		final Player player = client.getLocalPlayer();
+		if (player == null || player.getName() == null || player.getName().isEmpty())
+		{
+			return null;
+		}
+
+		return runeliteTitle + " - " + player.getName();
+	}
+
+	private boolean isFrameTitleReady(String title)
 	{
 		if (!runeLiteConfig.usernameInTitle())
 		{
