@@ -18,6 +18,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.WorldChanged;
+import net.runelite.api.events.WorldListLoad;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.config.RuneLiteConfig;
@@ -70,7 +71,10 @@ public class WorldTitlePlugin extends Plugin
 	private Frame titleFrame;
 	private String lastWorldSuffix;
 	private volatile WorldResult worldResult;
+	private volatile int clientWorld;
+	private volatile int clientWorldPlayerCount = -1;
 	private ExecutorService metadataExecutor;
+	private volatile boolean metadataRefreshPending;
 	private boolean updatingTitle;
 	private final WindowAdapter titleFocusListener = new WindowAdapter()
 	{
@@ -107,6 +111,7 @@ public class WorldTitlePlugin extends Plugin
 			metadataExecutor.shutdownNow();
 			metadataExecutor = null;
 		}
+		metadataRefreshPending = false;
 		removeTitleFocusListener();
 		resetTitle();
 	}
@@ -129,13 +134,22 @@ public class WorldTitlePlugin extends Plugin
 	@Subscribe
 	public void onWorldChanged(WorldChanged event)
 	{
+		updateClientWorldInfo();
 		startTitleRetryTimer(WORLD_HOP_TITLE_DELAY_MS);
+	}
+
+	@Subscribe
+	public void onWorldListLoad(WorldListLoad event)
+	{
+		updateClientWorldInfo(event.getWorlds());
+		updateTitle();
 	}
 
 	@Subscribe
 	public void onWorldsFetch(WorldsFetch event)
 	{
 		worldResult = event.getWorldResult();
+		metadataRefreshPending = false;
 		stopMetadataRetryTimer();
 		updateTitle();
 	}
@@ -145,7 +159,11 @@ public class WorldTitlePlugin extends Plugin
 	{
 		if ("world-title".equals(event.getGroup()))
 		{
-			worldService.refresh();
+			if (isMetadataConfigKey(event.getKey()))
+			{
+				refreshWorldMetadata();
+			}
+
 			updateTitle();
 			return;
 		}
@@ -213,6 +231,7 @@ public class WorldTitlePlugin extends Plugin
 				return false;
 			}
 
+			updateClientWorldInfo();
 			updateTitle();
 			return true;
 		});
@@ -289,8 +308,7 @@ public class WorldTitlePlugin extends Plugin
 			}
 
 			metadataRetriesRemaining = METADATA_RETRY_COUNT;
-			worldService.refresh();
-			loadWorldsAsync();
+			refreshWorldMetadata();
 			metadataRetryTimer = new Timer(TITLE_RETRY_DELAY_MS, event ->
 			{
 				updateTitle();
@@ -327,6 +345,7 @@ public class WorldTitlePlugin extends Plugin
 			metadataExecutor.submit(() ->
 			{
 				final WorldResult worlds = worldService.getWorlds();
+				metadataRefreshPending = false;
 				if (worlds != null)
 				{
 					worldResult = worlds;
@@ -338,6 +357,18 @@ public class WorldTitlePlugin extends Plugin
 		{
 			// Plugin shutdown can race with a pending metadata refresh.
 		}
+	}
+
+	private void refreshWorldMetadata()
+	{
+		if (metadataRefreshPending)
+		{
+			return;
+		}
+
+		metadataRefreshPending = true;
+		worldService.refresh();
+		loadWorldsAsync();
 	}
 
 	private void addTitleFocusListener(Frame frame)
@@ -475,9 +506,9 @@ public class WorldTitlePlugin extends Plugin
 			details.append(" (").append(formatWorldRegion(worldInfo.getRegion())).append(')');
 		}
 
-		if (config.showPlayerCount() && worldInfo != null && worldInfo.getPlayers() >= 0)
+		if (config.showPlayerCount() && hasPlayerCount(world, worldInfo))
 		{
-			details.append(separator).append(formatPlayerCount(worldInfo.getPlayers()));
+			details.append(separator).append(formatPlayerCount(getPlayerCount(world, worldInfo)));
 		}
 
 		if (config.showMembershipType() && worldInfo != null)
@@ -502,12 +533,60 @@ public class WorldTitlePlugin extends Plugin
 		return worldResult == null ? null : worldResult.findWorld(world);
 	}
 
+	private int getPlayerCount(int world, World worldInfo)
+	{
+		if (clientWorld == world && clientWorldPlayerCount >= 0)
+		{
+			return clientWorldPlayerCount;
+		}
+
+		return worldInfo.getPlayers();
+	}
+
+	private boolean hasPlayerCount(int world, World worldInfo)
+	{
+		return clientWorld == world && clientWorldPlayerCount >= 0
+			|| worldInfo != null && worldInfo.getPlayers() >= 0;
+	}
+
+	private void updateClientWorldInfo()
+	{
+		updateClientWorldInfo(client.getWorldList());
+	}
+
+	private void updateClientWorldInfo(net.runelite.api.World[] worlds)
+	{
+		clientWorld = client.getWorld();
+		clientWorldPlayerCount = -1;
+		if (worlds == null)
+		{
+			return;
+		}
+
+		for (net.runelite.api.World world : worlds)
+		{
+			if (world.getId() == clientWorld)
+			{
+				clientWorldPlayerCount = world.getPlayerCount();
+				return;
+			}
+		}
+	}
+
 	private boolean needsWorldMetadata()
 	{
 		return config.showWorldActivity()
 			|| config.showWorldRegion()
 			|| config.showPlayerCount()
 			|| config.showMembershipType();
+	}
+
+	private static boolean isMetadataConfigKey(String key)
+	{
+		return "showWorldActivity".equals(key)
+			|| "showWorldRegion".equals(key)
+			|| "showPlayerCount".equals(key)
+			|| "showMembershipType".equals(key);
 	}
 
 	private static String getWorldActivity(World world)
