@@ -3,6 +3,7 @@ package com.worldtitle;
 import java.awt.Frame;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import com.google.inject.Provides;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.swing.SwingUtilities;
@@ -11,6 +12,8 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.WorldChanged;
+import net.runelite.client.config.ConfigManager;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -20,9 +23,10 @@ import net.runelite.client.plugins.PluginDescriptor;
 )
 public class WorldTitlePlugin extends Plugin
 {
-	private static final String WORLD_SUFFIX_PATTERN = " - W\\d+$";
+	private static final String WORLD_SUFFIX_PATTERN = " - (?:W\\d+|World \\d+|\\[\\d+\\]|\\d+)$";
 	private static final int TITLE_RETRY_DELAY_MS = 250;
 	private static final int TITLE_RETRY_COUNT = 12;
+	private static final int WORLD_HOP_TITLE_DELAY_MS = 1000;
 
 	@Inject
 	private Client client;
@@ -30,6 +34,9 @@ public class WorldTitlePlugin extends Plugin
 	@Inject
 	@Named("runelite.title")
 	private String runeliteTitle;
+
+	@Inject
+	private WorldTitleConfig config;
 
 	private Timer titleRetryTimer;
 	private int titleRetriesRemaining;
@@ -39,9 +46,15 @@ public class WorldTitlePlugin extends Plugin
 		@Override
 		public void windowGainedFocus(WindowEvent event)
 		{
-			startTitleRetryTimer();
+			startTitleRetryTimerIfNeeded();
 		}
 	};
+
+	@Provides
+	WorldTitleConfig provideConfig(ConfigManager configManager)
+	{
+		return configManager.getConfig(WorldTitleConfig.class);
+	}
 
 	@Override
 	protected void startUp()
@@ -62,23 +75,36 @@ public class WorldTitlePlugin extends Plugin
 	{
 		if (event.getGameState() == GameState.LOGGED_IN)
 		{
-			startTitleRetryTimer();
+			startTitleRetryTimer(WORLD_HOP_TITLE_DELAY_MS);
 			return;
 		}
 
-		updateTitle();
+		if (event.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			updateTitle();
+		}
 	}
 
 	@Subscribe
 	public void onWorldChanged(WorldChanged event)
 	{
-		startTitleRetryTimer();
+		startTitleRetryTimer(WORLD_HOP_TITLE_DELAY_MS);
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if ("world-title".equals(event.getGroup()))
+		{
+			updateTitle();
+		}
 	}
 
 	private void updateTitle()
 	{
 		final int world = client.getWorld();
 		final boolean showWorld = client.getGameState() == GameState.LOGGED_IN && world > 0;
+		final String worldSuffix = " - " + config.worldFormat().format(world);
 
 		SwingUtilities.invokeLater(() ->
 		{
@@ -91,12 +117,12 @@ public class WorldTitlePlugin extends Plugin
 			addTitleFocusListener(frame);
 
 			final String baseTitle = stripWorldSuffix(frame.getTitle());
-			if (showWorld && !hasUsername(baseTitle))
+			if (showWorld && !isLoggedInTitleReady(baseTitle))
 			{
 				return;
 			}
 
-			frame.setTitle(showWorld ? baseTitle + " - W" + world : baseTitle);
+			setTitleIfChanged(frame, showWorld ? baseTitle + worldSuffix : baseTitle);
 		});
 	}
 
@@ -110,11 +136,11 @@ public class WorldTitlePlugin extends Plugin
 				return;
 			}
 
-			frame.setTitle(stripWorldSuffix(frame.getTitle()));
+			setTitleIfChanged(frame, stripWorldSuffix(frame.getTitle()));
 		});
 	}
 
-	private void startTitleRetryTimer()
+	private void startTitleRetryTimer(int initialDelay)
 	{
 		SwingUtilities.invokeLater(() ->
 		{
@@ -128,8 +154,21 @@ public class WorldTitlePlugin extends Plugin
 					stopTitleRetryTimer();
 				}
 			});
-			titleRetryTimer.setInitialDelay(0);
+			titleRetryTimer.setInitialDelay(initialDelay);
 			titleRetryTimer.start();
+		});
+	}
+
+	private void startTitleRetryTimerIfNeeded()
+	{
+		SwingUtilities.invokeLater(() ->
+		{
+			if (titleRetryTimer != null || titleHasExpectedWorldSuffix())
+			{
+				return;
+			}
+
+			startTitleRetryTimer(0);
 		});
 	}
 
@@ -165,9 +204,14 @@ public class WorldTitlePlugin extends Plugin
 
 	private Frame findClientFrame()
 	{
+		if (isClientFrame(titleFrame))
+		{
+			return titleFrame;
+		}
+
 		for (Frame frame : Frame.getFrames())
 		{
-			if (frame.isDisplayable() && stripWorldSuffix(frame.getTitle()).startsWith(runeliteTitle))
+			if (isClientFrame(frame))
 			{
 				return frame;
 			}
@@ -176,13 +220,43 @@ public class WorldTitlePlugin extends Plugin
 		return null;
 	}
 
+	private boolean isClientFrame(Frame frame)
+	{
+		if (frame == null || !frame.isDisplayable())
+		{
+			return false;
+		}
+
+		final String baseTitle = stripWorldSuffix(frame.getTitle());
+		return baseTitle.equals(runeliteTitle) || baseTitle.startsWith(runeliteTitle + " - ");
+	}
+
+	private boolean titleHasExpectedWorldSuffix()
+	{
+		if (client.getGameState() != GameState.LOGGED_IN || client.getWorld() <= 0)
+		{
+			return true;
+		}
+
+		final Frame frame = findClientFrame();
+		return frame != null && frame.getTitle().endsWith(" - " + config.worldFormat().format(client.getWorld()));
+	}
+
+	private static void setTitleIfChanged(Frame frame, String title)
+	{
+		if (!title.equals(frame.getTitle()))
+		{
+			frame.setTitle(title);
+		}
+	}
+
 	private static String stripWorldSuffix(String title)
 	{
 		return title.replaceFirst(WORLD_SUFFIX_PATTERN, "");
 	}
 
-	private static boolean hasUsername(String title)
+	private boolean isLoggedInTitleReady(String title)
 	{
-		return title.contains(" - ");
+		return title.startsWith(runeliteTitle + " - ") && title.length() > runeliteTitle.length() + 3;
 	}
 }
