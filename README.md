@@ -45,6 +45,16 @@ Available settings:
 
 World activity and membership data comes from RuneLite's existing world list service. If that data has not loaded yet, the plugin may briefly show only the world number and update once RuneLite receives the world list.
 
+## Other Plugins
+
+Check out my other RuneLite plugins:
+
+- [Area Loot](https://github.com/Aiirik/AreaLoot) - Shows nearby ground loot in a panel and highlights selected item locations.
+- [Chat Highlight Player](https://github.com/Aiirik/chathighlightplayer) - Highlights players by clicking their names in chat.
+- [Player Examine](https://github.com/Aiirik/PlayerExamine) - Shows visible equipment and combat info for examined players.
+- [Private Message Fade](https://github.com/Aiirik/PrivateMessageFade) - Hides split private chat after a configurable idle delay.
+- [Staff Rune Overlay](https://github.com/Aiirik/StaffRuneOverlay) - Shows rune overlays for elemental and combination staves.
+
 ## Change log
 
 Click to view the <a href="https://github.com/Aiirik/WorldTitle/blob/master/CHANGELOG.md">CHANGELOG</a>
