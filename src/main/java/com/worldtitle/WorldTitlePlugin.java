@@ -23,9 +23,10 @@ import net.runelite.client.plugins.PluginDescriptor;
 )
 public class WorldTitlePlugin extends Plugin
 {
-	private static final String WORLD_SUFFIX_PATTERN = " - (?:W\\d+|World \\d+|\\[\\d+\\]|\\d+)$";
+	private static final String WORLD_SUFFIX_PATTERN = " - (?:W\\d+|World \\d+|\\[\\d+\\])$";
 	private static final int TITLE_RETRY_DELAY_MS = 250;
-	private static final int TITLE_RETRY_COUNT = 12;
+	private static final int TITLE_RETRY_COUNT = 8;
+	// RuneLite can rewrite its title shortly after a hop; wait before applying ours to avoid visible flicker.
 	private static final int WORLD_HOP_TITLE_DELAY_MS = 1000;
 
 	@Inject
@@ -41,6 +42,7 @@ public class WorldTitlePlugin extends Plugin
 	private Timer titleRetryTimer;
 	private int titleRetriesRemaining;
 	private Frame titleFrame;
+	private String lastWorldSuffix;
 	private final WindowAdapter titleFocusListener = new WindowAdapter()
 	{
 		@Override
@@ -104,7 +106,7 @@ public class WorldTitlePlugin extends Plugin
 	{
 		final int world = client.getWorld();
 		final boolean showWorld = client.getGameState() == GameState.LOGGED_IN && world > 0;
-		final String worldSuffix = " - " + config.worldFormat().format(world);
+		final String worldSuffix = formatWorldSuffix(world);
 
 		SwingUtilities.invokeLater(() ->
 		{
@@ -122,7 +124,15 @@ public class WorldTitlePlugin extends Plugin
 				return;
 			}
 
-			setTitleIfChanged(frame, showWorld ? baseTitle + worldSuffix : baseTitle);
+			final String title = showWorld ? baseTitle + worldSuffix : baseTitle;
+			if (setTitleIfChanged(frame, title) || showWorld)
+			{
+				lastWorldSuffix = showWorld ? worldSuffix : null;
+			}
+			else
+			{
+				lastWorldSuffix = null;
+			}
 		});
 	}
 
@@ -137,6 +147,7 @@ public class WorldTitlePlugin extends Plugin
 			}
 
 			setTitleIfChanged(frame, stripWorldSuffix(frame.getTitle()));
+			lastWorldSuffix = null;
 		});
 	}
 
@@ -239,20 +250,33 @@ public class WorldTitlePlugin extends Plugin
 		}
 
 		final Frame frame = findClientFrame();
-		return frame != null && frame.getTitle().endsWith(" - " + config.worldFormat().format(client.getWorld()));
+		return frame != null && frame.getTitle().endsWith(formatWorldSuffix(client.getWorld()));
 	}
 
-	private static void setTitleIfChanged(Frame frame, String title)
+	private boolean setTitleIfChanged(Frame frame, String title)
 	{
 		if (!title.equals(frame.getTitle()))
 		{
 			frame.setTitle(title);
+			return true;
 		}
+
+		return false;
 	}
 
-	private static String stripWorldSuffix(String title)
+	private String stripWorldSuffix(String title)
 	{
+		if (lastWorldSuffix != null && title.endsWith(lastWorldSuffix))
+		{
+			return title.substring(0, title.length() - lastWorldSuffix.length());
+		}
+
 		return title.replaceFirst(WORLD_SUFFIX_PATTERN, "");
+	}
+
+	private String formatWorldSuffix(int world)
+	{
+		return " - " + config.worldFormat().format(world);
 	}
 
 	private boolean isLoggedInTitleReady(String title)
